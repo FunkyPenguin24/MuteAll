@@ -4,7 +4,9 @@ import random
 import os
 # import asyncio
 
-TOKEN = os.environ["TOKEN"]
+TOKEN = open("token.txt", "r").read()
+
+EXEMPT_ROLES = open("exempt_roles.txt", "r").read().split(",")
 
 client = commands.AutoShardedBot(command_prefix=".")
 
@@ -13,8 +15,7 @@ client.remove_command("help")  # removes the default ".help" command
 # sets status when the bot is ready
 @client.event
 async def on_ready():
-    activity = discord.Activity(name=".help", type=discord.ActivityType.playing)
-    await client.change_presence(status=discord.Status.online, activity=activity)
+    await client.change_presence(status=discord.Status.online)
     print("Ready!")
 
 
@@ -33,7 +34,7 @@ async def on_guild_join(guild):
 @client.command(aliases=["i", "link"])
 async def invite(ctx):
     embed = discord.Embed()
-    embed.add_field(name="Invite Link", value="[Invite The Bot](https://discord.com/oauth2/authorize?client_id=757369495953342593&scope=bot&permissions=12659776)")
+    embed.add_field(name="Invite Link", value="[Invite The Bot](https://discord.com/api/oauth2/authorize?client_id=850398067504840784&permissions=281226240&scope=bot)")
     await ctx.send(embed=embed)
 
 
@@ -71,26 +72,18 @@ async def help(ctx):
     embed.add_field(name="`.undeafenme` / `.udme`", value="Un-deafen only yourself.",
                     inline=False)
 
-    embed.add_field(name="`.start` / `.s`", value="[BETA] React with emojies to mute or unmute, no need to type "
-                                                  "anymore! ", inline=False)
-
-    embed.add_field(name="`.end` / `.e`", value="End the game, un-mute everyone (including bots)", inline=False)
-
-    embed.add_field(name="`.tanner` / `.t`", value="Add a new role to the game! The bot randomly selects a user "
-                                                   "in the voice channel to be the secret tanner. The tanner can only "
-                                                   "win if people vote them off (and everyone else loses).",
+    embed.add_field(name="`.addexempt` / `.addrole`", value="Add roles that are exempt from being muted",
                     inline=False)
-    embed.add_field(name="`.minion` / `.min`", value="Add a new role to the game! The bot randomly selects a user "
-                                                     "in the voice channel to be the secret minion. The minion is like "
-                                                     "another impostor but can not kill or sabotage, they will try to "
-                                                     "keep the sus away from the impostors and they will if the "
-                                                     "impostors win.",
+
+    embed.add_field(name="`.removeexempt` / `.removerole`", value="Remove roles that are exempt from being muted",
                     inline=False)
+
     embed.add_field(name="Bot not muting everyone?", value="Ask everyone to reconnect to the voice channel.", inline=False)
 
     embed.add_field(name="_", value="[Join support server](https://discord.gg/8hrhffR6aX)", inline=False)
 
-    await ctx.send(embed=embed)
+    if ctx.channel.name == "bot-panel":
+        await ctx.send(embed=embed)
 
 
 async def show_common_error(ctx, embed, e):
@@ -114,46 +107,55 @@ async def mute(ctx):
     botEmbed = discord.Embed(color=discord.Color.green())
 
     if ctx.guild:  # check if the msg was in a server's text channel
-        if author.voice:  # check if the user is in a voice channel
-            if author.guild_permissions.mute_members:  # check if the user has mute members permission
-                try:
-                    no_of_members = 0
-                    for member in author.voice.channel.members:  # traverse through the members list in current vc
-                        if not member.bot:  # check if member is not a bot
-                            await member.edit(mute=True)  # mute the non-bot member
-                            no_of_members += 1
-                        else:
-                            await member.edit(mute=False)  # un-mute the bot member
+        if ctx.channel.name == "bot-panel":
+            if author.voice:  # check if the user is in a voice channel
+                if author.guild_permissions.mute_members:  # check if the user has mute members permission
+                    try:
+                        no_of_members = 0
+                        for member in author.voice.channel.members:  # traverse through the members list in current vc
+                            if not member.bot:  # check if member is not a bot
+                                if memberCanBeMuted(member):
+                                    await member.edit(mute=True)  # mute the non-bot member
+                                    no_of_members += 1
+                            else:
+                                await member.edit(mute=False)  # un-mute the bot member
+                                embed.clear_fields()
+                                botEmbed.set_author(name=f"Un-muted {member.name}")
+                                await ctx.send(embed=botEmbed)
+                                # embed.add_field(name="Status", value=f"Un-muted {member.name}")
+                        if no_of_members == 0:
                             embed.clear_fields()
-                            botEmbed.set_author(name=f"Un-muted {member.name}")
-                            await ctx.send(embed=botEmbed)
-                            # embed.add_field(name="Status", value=f"Un-muted {member.name}")
-                    if no_of_members == 0:
-                        embed.clear_fields()
-                        embed.set_author(name="Everyone, please reconnect to the voice channel.")
-                        # embed.add_field(name="Error", value="Everyone, please reconnect to the voice channel.")
-                    else:
-                        embed.clear_fields()
-                        embed.set_author(name=f"Muted {no_of_members} user(s)")
-                        # embed.add_field(name="Status", value=f"Muted {no_of_members} users.")
-                    await ctx.send(embed=embed)
+                            embed.set_author(name="Muted no one.")
+                            # embed.add_field(name="Error", value="Everyone, please reconnect to the voice channel.")
+                        else:
+                            embed.clear_fields()
+                            embed.set_author(name=f"Muted {no_of_members} user(s)")
+                            # embed.add_field(name="Status", value=f"Muted {no_of_members} users.")
+                        await ctx.send(embed=embed)
 
-                except discord.Forbidden: # the bot doesn't have the permission to mute
-                    await show_permission_error(ctx, embed)
-                except Exception as e:
-                    await show_common_error(ctx, embed, e)
+                    except discord.Forbidden: # the bot doesn't have the permission to mute
+                        await show_permission_error(ctx, embed)
+                    except Exception as e:
+                        await show_common_error(ctx, embed, e)
+                else:
+                    embed.clear_fields()
+                    embed.add_field(name="Error", value="You don't have the `Mute Members` permission.")
+                    await ctx.send(embed=embed)
             else:
                 embed.clear_fields()
-                embed.add_field(name="Error", value="You don't have the `Mute Members` permission.")
+                embed.add_field(name="Error", value="You must join a voice channel first.")
                 await ctx.send(embed=embed)
-        else:
-            embed.clear_fields()
-            embed.add_field(name="Error", value="You must join a voice channel first.")
-            await ctx.send(embed=embed)
     else:
         embed.clear_fields()
         embed.add_field(name="Error", value="This does not work in DMs.")
         await ctx.send(embed=embed)
+
+
+def memberCanBeMuted(member):
+    for role in member.roles:
+        if role.name in EXEMPT_ROLES:
+            return False
+    return True
 
 
 # deafens everyone in the current voice channel
@@ -164,28 +166,29 @@ async def deafen(ctx):
     embed = discord.Embed(color=discord.Color.red())
 
     if ctx.guild:  # check if the msg was in a server's text channel
-        if author.voice:  # check if the user is in a voice channel
-            if author.guild_permissions.deafen_members:  # check if the user has deafen members permission
-                try:
-                    no_of_members = 0
-                    for member in author.voice.channel.members:  # traverse through the members list in current vc
-                        await member.edit(deafen=True)  # deafen the member
-                        no_of_members += 1
-                    if no_of_members == 0:
-                        await ctx.channel.send(f"Everyone, please disconnect and reconnect to the Voice Channel again.")
-                    elif no_of_members < 2:
-                        await ctx.channel.send(f"Deafened {no_of_members} user in {author.voice.channel}.")
-                    else:
-                        await ctx.channel.send(f"Deafened {no_of_members} users in {author.voice.channel}.")
+        if ctx.channel.name == "bot-panel":
+            if author.voice:  # check if the user is in a voice channel
+                if author.guild_permissions.deafen_members:  # check if the user has deafen members permission
+                    try:
+                        no_of_members = 0
+                        for member in author.voice.channel.members:  # traverse through the members list in current vc
+                            await member.edit(deafen=True)  # deafen the member
+                            no_of_members += 1
+                        if no_of_members == 0:
+                            await ctx.channel.send(f"Everyone, please disconnect and reconnect to the Voice Channel again.")
+                        elif no_of_members < 2:
+                            await ctx.channel.send(f"Deafened {no_of_members} user in {author.voice.channel}.")
+                        else:
+                            await ctx.channel.send(f"Deafened {no_of_members} users in {author.voice.channel}.")
 
-                except discord.Forbidden:
-                    await show_permission_error(ctx, embed)
-                except Exception as e:
-                    await show_common_error(ctx, embed, e)
+                    except discord.Forbidden:
+                        await show_permission_error(ctx, embed)
+                    except Exception as e:
+                        await show_common_error(ctx, embed, e)
+                else:
+                    await ctx.channel.send("You don't have the `Deafen Members` permission.")
             else:
-                await ctx.channel.send("You don't have the `Deafen Members` permission.")
-        else:
-            await ctx.send("You must join a voice channel first.")
+                await ctx.send("You must join a voice channel first.")
     else:
         await ctx.send("This does not work in DMs.")
 
@@ -199,42 +202,43 @@ async def unmute(ctx):
     botEmbed = discord.Embed(color=discord.Color.red())
 
     if ctx.guild:  # check if the msg was in a server's text channel
-        if author.voice:  # check if the user is in a voice channel
-            try:
-                no_of_members = 0
-                for member in author.voice.channel.members:  # traverse through the members list in current vc
-                    if not member.bot:  # check if member is not a bot
-                        await member.edit(mute=False)  # unmute the non-bot member
-                        no_of_members += 1
-                    else:
-                        await member.edit(mute=True)  # mute the bot member
+        if ctx.channel.name == "bot-panel":
+            if author.voice:  # check if the user is in a voice channel
+                try:
+                    no_of_members = 0
+                    for member in author.voice.channel.members:  # traverse through the members list in current vc
+                        if not member.bot:  # check if member is not a bot
+                            await member.edit(mute=False)  # unmute the non-bot member
+                            no_of_members += 1
+                        else:
+                            await member.edit(mute=True)  # mute the bot member
+                            embed.clear_fields()
+                            botEmbed.set_author(name=f"Muted {member.name}")
+                            await ctx.send(embed=botEmbed)
+                            # embed.add_field(name="Status", value=f"Un-muted {member.name}")
+                    if no_of_members == 0:
                         embed.clear_fields()
-                        botEmbed.set_author(name=f"Muted {member.name}")
-                        await ctx.send(embed=botEmbed)
-                        # embed.add_field(name="Status", value=f"Un-muted {member.name}")
-                if no_of_members == 0:
-                    embed.clear_fields()
-                    embed.set_author(name="Everyone, please reconnect to the voice channel.")
-                    # embed.add_field(name="Error", value="Everyone, please reconnect to the voice channel.")
-                else:
-                    embed.clear_fields()
-                    embed.set_author(name=f"Un-muted {no_of_members} user(s)")
-                    # embed.add_field(name="Status", value=f"Muted {no_of_members} users.")
-                await ctx.send(embed=embed)
+                        embed.set_author(name="Unmuted no one.")
+                        # embed.add_field(name="Error", value="Everyone, please reconnect to the voice channel.")
+                    else:
+                        embed.clear_fields()
+                        embed.set_author(name=f"Un-muted {no_of_members} user(s)")
+                        # embed.add_field(name="Status", value=f"Muted {no_of_members} users.")
+                    await ctx.send(embed=embed)
 
-            except discord.Forbidden: # the bot doesn't have the permission to mute
-                await show_permission_error(ctx, embed)
-            except Exception as e:
-                await show_common_error(ctx, embed, e)
-        else:
-            embed.clear_fields()
-            embed.add_field(name="Error", value="You must join a voice channel first.")
-            await ctx.send(embed=embed)
+                except discord.Forbidden: # the bot doesn't have the permission to mute
+                    await show_permission_error(ctx, embed)
+                except Exception as e:
+                    await show_common_error(ctx, embed, e)
+            else:
+                embed.clear_fields()
+                embed.add_field(name="Error", value="You must join a voice channel first.")
+                await ctx.send(embed=embed)
     else:
         embed.clear_fields()
         embed.add_field(name="Error", value="This does not work in DMs.")
         await ctx.send(embed=embed)
-    
+
 
 # un-deafens the user in the current voice channel
 @client.command(aliases=["udme", "Undeafenme"])
@@ -242,18 +246,19 @@ async def undeafenme(ctx):
     # command_name = "undeafenme"
     author = ctx.author
     embed = discord.Embed(color=discord.Color.red())
+    
+    if ctx.channel.name == "bot-panel":
+        if author.voice:  # check if the user is in a voice channel
+            try:
+                await author.edit(deafen=False)
+                await ctx.send(f"Un-deafened {author.name}.")
 
-    if author.voice:  # check if the user is in a voice channel
-        try:
-            await author.edit(deafen=False)
-            await ctx.send(f"Un-deafened {author.name}.")
-
-        except discord.Forbidden:
-            await show_permission_error(ctx, embed)
-        except Exception as e:
-            await show_common_error(ctx, embed, e)
-    else:
-        await ctx.send("You must join a voice channel first.")
+            except discord.Forbidden:
+                await show_permission_error(ctx, embed)
+            except Exception as e:
+                await show_common_error(ctx, embed, e)
+        else:
+            await ctx.send("You must join a voice channel first.")
 
 
 # un-deafens everyone in the current voice channel
@@ -264,152 +269,78 @@ async def undeafen(ctx):
     embed = discord.Embed(color=discord.Color.red())
 
     if ctx.guild:  # check if the msg was in a server's text channel
-        if author.voice:  # check if the user is in a voice channel
-            if author.guild_permissions.deafen_members:  # check if the user has deafen members permission
-                try:
-                    no_of_members = 0
-                    for member in author.voice.channel.members:  # traverse through the members list in current vc
-                        await member.edit(deafen=False)  # un-deafen the member
-                        no_of_members += 1
-                    if no_of_members == 0:
-                        await ctx.channel.send(f"Everyone, please disconnect and reconnect to the Voice Channel again.")
-                    elif no_of_members < 2:
-                        await ctx.channel.send(f"Un-deafened {no_of_members} user in {author.voice.channel}.")
-                    else:
-                        await ctx.channel.send(f"Un-deafened {no_of_members} users in {author.voice.channel}.")
+        if ctx.channel.name == "bot-panel":
+            if author.voice:  # check if the user is in a voice channel
+                if author.guild_permissions.deafen_members:  # check if the user has deafen members permission
+                    try:
+                        no_of_members = 0
+                        for member in author.voice.channel.members:  # traverse through the members list in current vc
+                            await member.edit(deafen=False)  # un-deafen the member
+                            no_of_members += 1
+                        if no_of_members == 0:
+                            await ctx.channel.send(f"Everyone, please disconnect and reconnect to the Voice Channel again.")
+                        elif no_of_members < 2:
+                            await ctx.channel.send(f"Un-deafened {no_of_members} user in {author.voice.channel}.")
+                        else:
+                            await ctx.channel.send(f"Un-deafened {no_of_members} users in {author.voice.channel}.")
 
-                except discord.Forbidden:
-                    await show_permission_error(ctx, embed)
-                except Exception as e:
-                    await show_common_error(ctx, embed, e)
-            else:
-                await ctx.channel.send("You don't have the `Mute Members` permission.")
-        else:
-            await ctx.send("You must join a voice channel first.")
-    else:
-        await ctx.send("This does not work in DMs.")
-
-
-# end the game and un-mute everyone including bots
-@client.command(aliases=["e", "E", "End"])
-async def end(ctx):
-    # command_name = "end"
-    author = ctx.author
-    embed = discord.Embed(color=discord.Color.red())
-
-    if ctx.guild:  # check if the msg was in a server's text channel
-        if author.voice:  # check if the user is in a voice channel
-            try:
-                no_of_members = 0
-                for member in author.voice.channel.members:  # traverse through the members list in current vc
-                    await member.edit(mute=False)  # un-mute the member
-                    no_of_members += 1
-                if no_of_members == 0:
-                    await ctx.channel.send(f"Everyone, please disconnect and reconnect to the Voice Channel again.")
-                elif no_of_members < 2:
-                    await ctx.channel.send(f"Un-muted {no_of_members} user in {author.voice.channel}.")
+                    except discord.Forbidden:
+                        await show_permission_error(ctx, embed)
+                    except Exception as e:
+                        await show_common_error(ctx, embed, e)
                 else:
-                    await ctx.channel.send(f"Un-muted {no_of_members} users in {author.voice.channel}.")
-
-            except discord.Forbidden:
-                await show_permission_error(ctx, embed)
-            except Exception as e:
-                await show_common_error(ctx, embed, e)
-        else:
-            await ctx.send("You must join a voice channel first.")
+                    await ctx.channel.send("You don't have the `Mute Members` permission.")
+            else:
+                await ctx.send("You must join a voice channel first.")
     else:
         await ctx.send("This does not work in DMs.")
 
+@client.command(aliases=["addexempt","addrole"])
+async def addExemptRole(ctx, args):
+    if ctx.channel.name == "bot-panel":
+        if guildHasRole(ctx.guild, args):
+            if (args not in EXEMPT_ROLES):
+                EXEMPT_ROLES.append(args)
+                saveRoles()
+                embed = discord.Embed(color=discord.Color.green())
+                embed.clear_fields()
+                embed.set_author(name=args + " added to exempt roles")
+                await ctx.send(embed=embed)
+            else:
+                embed = discord.Embed(color=discord.Color.red())
+                embed.clear_fields()
+                embed.add_field(name="Error", value="That role is already exempt")
+                await ctx.send(embed=embed)
+        else:
+            await ctx.send("No role by that name")
 
-# tanner role
-@client.command(aliases=["Tanner", "t", "T"])
-async def tanner(ctx):
-    # command_name = "tanner"
-    author = ctx.author
+@client.command(aliases=["removeexempt","removerole"])
+async def removeExemptRole(ctx, args):
+    if ctx.channel.name == "bot-panel":
+        if args in EXEMPT_ROLES:
+            EXEMPT_ROLES.remove(args)
+            saveRoles()
+            embed = discord.Embed(color=discord.Color.green())
+            embed.clear_fields()
+            embed.set_author(name=args + " removed for exempt roles")
+            await ctx.send(embed=embed)
+        else:
+            embed = discord.Embed(color=discord.Color.red())
+            embed.clear_fields()
+            embed.add_field(name="Error", value="That role is not exempt")
+            await ctx.send(embed=embed)
 
-    embed = discord.Embed(color=discord.Color.red())
-    DMEmbed = discord.Embed(color=discord.Color.gold())
-    ReplayEmbed = discord.Embed(color=discord.Color.gold())
+def saveRoles():
+    file = open("exempt_roles.txt", "w")
+    for role in EXEMPT_ROLES:
+        file.write(role + ",")
+    file.close()
 
-    if author.voice:  # check if the user is in a voice channel
-        try:
-            members_list = []
-            for member in author.voice.channel.members:  # traverse through the members list in current vc
-                if not member.bot:  # check if member is not a bot
-                    members_list.append(member)
-            selected_tanner = random.choice(members_list)
-
-            DMEmbed.set_author(name="You are the secret Tanner!")
-            DMEmbed.add_field(name="1.", value="If you were already an Impostor then nothing changes. But if you were "
-                                               "a crewmate, now you are the Tanner!", inline=False)
-            DMEmbed.add_field(name="2.", value="The only way to win is by making everyone else to vote you off. Act "
-                                               "sus!", inline=False)
-
-            await selected_tanner.send(embed=DMEmbed)
-
-            ReplayEmbed.add_field(name="Selected a TANNER and sent them a DM.", value=f"Hey crewmates, there is a "
-                                                                                      f"tanner among us! Find out who "
-                                                                                      f"it is and don't vote 'em off! "
-                                                                                      f" (Initiated by {author.name})",
-                                  inline=False)
-            await ctx.send(embed=ReplayEmbed)
-
-        except IndexError:
-            ReplayEmbed.add_field(name="Error", value="Everyone, please disconnect and reconnect to the Voice Channel "
-                                                      "again.")
-            await ctx.send(embed=ReplayEmbed)
-        except Exception as e:
-            await show_common_error(ctx, embed, e)
-    else:
-        ReplayEmbed.add_field(name="Error", value="You must join a voice channel first")
-        await ctx.send(embed=ReplayEmbed)
-
-
-# minion role
-@client.command(aliases=["Minion", "Min", "min"])
-async def minion(ctx):
-    # command_name = "minion"
-    author = ctx.author
-
-    embed = discord.Embed(color=discord.Color.red())
-    DMEmbed = discord.Embed(color=discord.Color.orange())  # the msg that we are gonna send to the dm of the selected minion
-    ReplayEmbed = discord.Embed(color=discord.Color.orange())  # the msg that we are gonna send to the the server text channel
-
-    if author.voice:  # check if the user is in a voice channel
-        try:
-            members_list = []
-            for member in author.voice.channel.members:  # traverse through the members list in current vc
-                if not member.bot:  # check if member is not a bot
-                    members_list.append(member)
-            selected_tanner = random.choice(members_list)
-
-            DMEmbed.set_author(name="You are the secret Minion!")
-            DMEmbed.add_field(name="1.", value="If you were already an Impostor then nothing changes. But if you were "
-                                               "a crewmate, now you are the Minion of the Impostor!", inline=False)
-            DMEmbed.add_field(name="2.", value="You are like the impostor but cannot kill or sabotage. You will win "
-                                               "if the impostors win. Try to keep them alive!", inline=False)
-            DMEmbed.add_field(name="3.", value="You and the impostor don't know each others identity.", inline=False)
-
-            await selected_tanner.send(embed=DMEmbed)
-
-            ReplayEmbed.add_field(name="Selected a MINION and sent them a DM.", value=f"Hey impostors, there is a "
-                                                                                      f"minion among us! Try not to "
-                                                                                      f"kill them, they will help you "
-                                                                                      f"win!"
-                                                                                      f" (Initiated by {author.name})",
-                                  inline=False)
-            await ctx.send(embed=ReplayEmbed)
-
-        except IndexError:
-            ReplayEmbed.add_field(name="Error", value="Everyone, please disconnect and reconnect to the Voice Channel "
-                                                      "again.")
-            await ctx.send(embed=ReplayEmbed)
-        except Exception as e:
-            await show_common_error(ctx, embed, e)
-    else:
-        ReplayEmbed.add_field(name="Error", value="You must join a voice channel first")
-        await ctx.send(embed=ReplayEmbed)
-
+def guildHasRole(guild, roleName):
+    for role in guild.roles:
+        if role.name == roleName:
+            return True
+    return False
 
 async def mute_with_reaction(user):
     # command_name = "mute_with_reaction"
@@ -436,52 +367,6 @@ async def unmute_with_reaction(user):
                     await member.edit(mute=True)  # un-mute the bot member
     except Exception as e:
         pass
-
-
-# TODO: Move to on_raw_reaction_add(), get user obj using user_id, find a way to get reaction obj
-# use reactions instead of typing
-@client.command(aliases=["play", "s", "p"])
-async def start(ctx):
-    try:
-        embed = discord.Embed()
-        embed.add_field(name="React with an emoji below!", value=":regional_indicator_m: is mute, "
-                                                                 ":regional_indicator_u: is unmute", inline=False)
-        message = await ctx.send(embed=embed)
-
-        await message.add_reaction("🇲")
-        await message.add_reaction("🇺")
-
-        # await message.add_reaction("🇪")
-
-        @client.event
-        async def on_reaction_add(reaction, user):
-            try:
-                if user != client.user:  # this user is the user who reacted, ignore the initial reactions from the bot
-                    if reaction.message.author == client.user:  # this user is the author of the embed, should be the
-                        # bot itself, this check is needed so the bot doesn't mute/unmute on reactions to any other
-                        # messages
-                        if reaction.emoji == "🇲":
-                            await mute_with_reaction(user)
-                            await reaction.remove(user)
-
-                        elif reaction.emoji == "🇺":
-                            await unmute_with_reaction(user)
-                            await reaction.remove(user)
-
-            except discord.errors.Forbidden:
-                await show_permission_error(ctx, embed)
-
-    # except discord.errors.Forbidden:
-    #     await show_permission_error(ctx, embed)
-
-    # except discord.errors.NotFound:
-    #     await show_common_error(ctx, embed, e)
-
-    # except discord.errors.HTTPException:
-    #     await show_common_error(ctx, embed, e)
-
-    except Exception as e:
-        await show_common_error(ctx, embed, e)
 
 
 @client.command()
